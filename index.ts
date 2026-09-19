@@ -3,9 +3,18 @@ import { deepseek } from "@ai-sdk/deepseek";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 
 const cwd = process.argv[2] || process.cwd();
+
+const SAFE_PREFIXES = [
+  "ls", "cat", "echo", "pwd", "which", "find",
+  "head", "tail", "wc", "git log", "git status", "git diff",
+];
+
+function isSafe(command: string): boolean {
+  return SAFE_PREFIXES.some((p) => command.trim().startsWith(p));
+}
 
 const read = tool({
   description: `Read a file from the project. Returns numbered lines.
@@ -84,10 +93,37 @@ const grep = tool({
   },
 });
 
+const bash = tool({
+  description: `Execute a shell command in the working directory.
+WHEN TO USE: running build commands, installing packages, running tests,
+  git operations, directory listings.
+WHEN NOT TO USE: reading file contents (use read instead).
+  Searching for patterns (use grep instead).
+DO NOT USE FOR: reading files (use read), searching code (use grep).`,
+  inputSchema: z.object({
+    command: z.string().describe("Shell command to execute"),
+  }),
+  execute: async ({ command }) => {
+    if (!isSafe(command)) {
+      return `Blocked: "${command}" requires approval. Only safe commands (${SAFE_PREFIXES.join(", ")}) run automatically`;
+    }
+    try {
+      const stdout = execSync(command, {
+        cwd,
+        encoding: "utf-8",
+        timeout: 30_000,
+      });
+      return stdout || "(no output)";
+    } catch (e: any) {
+      return `Exit ${e.status ?? 1}: ${e.stdout || e.stderr || e.message || ""}`;
+    }
+  }
+});
+
 const agent = new ToolLoopAgent({
   model: deepseek("deepseek-flash"),
   instructions: `You are a coding agent.\nWorking directory: ${cwd}`,
-  tools: { read, grep },
+  tools: { read, grep, bash },
   stopWhen: stepCountIs(10),
 });
 
