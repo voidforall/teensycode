@@ -1,13 +1,18 @@
 import { ToolLoopAgent, stepCountIs, tool } from "ai";
 import { deepseek } from "@ai-sdk/deepseek";
 import { z } from "zod";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve, join } from "node:path";
 import { execSync, spawnSync } from "node:child_process";
 
 import { buildSystemPrompt } from "./src/system";
 
 const cwd = process.argv[2] || process.cwd();
+
+const agentPath = join(cwd, "AGENTS.md");
+const projectContext = existsSync(agentPath)
+  ? readFileSync(agentPath, "utf-8")
+  : undefined;
 
 const SAFE_PREFIXES = [
   "ls", "cat", "echo", "pwd", "which",
@@ -188,6 +193,7 @@ const instructions = buildSystemPrompt({
   workingDirectory: cwd,
   sandboxType: "local",
   toolNames: Object.keys({ read, grep, bash }),
+  projectContext,
 });
 
 const agent = new ToolLoopAgent({
