@@ -8,13 +8,9 @@ import { execSync, spawnSync } from "node:child_process";
 const cwd = process.argv[2] || process.cwd();
 
 const SAFE_PREFIXES = [
-  "ls", "cat", "echo", "pwd", "which", "find",
+  "ls", "cat", "echo", "pwd", "which",
   "head", "tail", "wc", "git log", "git status", "git diff",
 ];
-
-function isSafe(command: string): boolean {
-  return SAFE_PREFIXES.some((p) => command.trim().startsWith(p));
-}
 
 const read = tool({
   description: `Read a file from the project. Returns numbered lines.
@@ -105,41 +101,66 @@ const grep = tool({
   },
 });
 
-const bash = tool({
-  description: `Execute a shell command in the working directory.
+interface BashOperations {
+  exec(command: string): Promise<{ stdout: string; exitCode: number }>;
+}
 
-  WHEN TO USE: running build commands, installing packages, running tests, git operations, directory listings.
+function createBashTool(operations: BashOperations, safePrefixes: string[]) {
+  function isSafe(command: string): boolean {
+    const trimmed = command.trim();
+    if (/[;&|<>`$\n\r]/.test(trimmed)) return false;
+    return safePrefixes.some((prefix) =>
+      trimmed === prefix || trimmed.startsWith(`${prefix} `)
+    );
+  }
 
-  WHEN NOT TO USE: reading file contents (use read instead). Searching for patterns (use grep instead).
+  return tool({
+    description: `Execute a shell command in the working directory.
 
-  DO NOT USE FOR: reading files (use read), searching code (use grep).
+    WHEN TO USE: running build commands, installing packages, running tests, git operations, directory listings.
+
+    WHEN NOT TO USE: reading file contents (use read instead). Searching for patterns (use grep instead).
+
+    DO NOT USE FOR: reading files (use read), searching code (use grep).
   
-  USAGE: command is a single shell string. Commands not in the safe-prefix allowlist are blocked and return a clear error message.
+    USAGE: command is a single shell string. Commands not in the safe-prefix allowlist are blocked and return a clear error message.
 
-  EXAMPLES:
-    - List files: command "ls -la"
-    - Check git status: command "git status"
-    - Run a test suite: command "npm test"`,
+    EXAMPLES:
+      - List files: command "ls -la"
+      - Check git status: command "git status"`,
   
-  inputSchema: z.object({
-    command: z.string().describe("Shell command to execute"),
-  }),
-  execute: async ({ command }) => {
-    if (!isSafe(command)) {
-      return `Blocked: "${command}" requires approval. Only safe commands (${SAFE_PREFIXES.join(", ")}) run automatically`;
-    }
+    inputSchema: z.object({
+      command: z.string().describe("Shell command to execute"),
+    }),
+    execute: async ({ command }) => {
+      if (!isSafe(command)) {
+        return `Blocked: "${command}" requires approval.`;
+      }
+      const { stdout, exitCode } = await operations.exec(command);
+      return exitCode === 0 ? stdout || "(no output)" : `Exit ${exitCode}: ${stdout}`;
+    },
+  });
+}
+
+const localOps: BashOperations = {
+  exec: async (command) => {
     try {
       const stdout = execSync(command, {
         cwd,
         encoding: "utf-8",
         timeout: 30_000,
       });
-      return stdout || "(no output)";
-    } catch (e: any) {
-      return `Exit ${e.status ?? 1}: ${e.stdout || e.stderr || e.message || ""}`;
+      return { stdout, exitCode: 0 };
+    } catch (error: any) {
+      return {
+        stdout: String(error.stdout || error.stderr || error.message || ""),
+        exitCode: error.status ?? 1,
+      };
     }
-  }
-});
+  },
+};
+
+const bash = createBashTool(localOps, SAFE_PREFIXES);
 
 const agent = new ToolLoopAgent({
   model: deepseek("deepseek-flash"),
