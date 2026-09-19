@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/deepseek": "^2.0.64",
     "ai": "^6.0.0",
     "zod": "^3.25.0"
   },

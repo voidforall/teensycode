@@ -1,4 +1,5 @@
 import { ToolLoopAgent, stepCountIs, tool } from "ai";
+import { deepseek } from "@ai-sdk/deepseek";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -84,7 +85,7 @@ const grep = tool({
 });
 
 const agent = new ToolLoopAgent({
-  model: "google/gemini-2.5-flash",
+  model: deepseek("deepseek-flash"),
   instructions: `You are a coding agent.\nWorking directory: ${cwd}`,
   tools: { read, grep },
   stopWhen: stepCountIs(10),

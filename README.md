@@ -7,15 +7,17 @@ The course incrementally builds a TypeScript coding-agent harness with tools, sa
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.x
-- A [Vercel AI Gateway](https://vercel.com/ai-gateway) API key
+- A [DeepSeek API key](https://platform.deepseek.com/api_keys) with available balance
 
 ## Setup
 
 ```bash
 bun install
-cp .env.example .env
-# Add your AI_GATEWAY_API_KEY to .env
+cp -n .env.example .env # keep an existing .env
+# Add DEEPSEEK_API_KEY=<your key> to .env (never commit this file)
 ```
+
+If you already have a `.env` from AI Gateway, add the `DEEPSEEK_API_KEY` line to it instead of overwriting the file. The agent now connects directly to DeepSeek; `AI_GATEWAY_API_KEY` is no longer used.
 
 Run the current agent against this repository:
 
@@ -47,4 +49,3 @@ bun run typecheck
 ## Notes
 
 The repository starts at the course's initial chatbot stage. Each lesson should be committed separately so the implementation history mirrors the course progression.
-
