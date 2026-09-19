@@ -101,19 +101,39 @@ const grep = tool({
   },
 });
 
+type ApprovalConfig =
+  | { mode: "interactive" }
+  | { mode: "background" }
+  | { mode: "delegated"; trust: string[] };
+
+function matchesTrustedCommand(command: string, prefixes: string[]): boolean {
+  const trimmed = command.trim();
+  if (/[;&|<>`$\n\r]/.test(trimmed)) return false;
+  return prefixes.some((prefix) =>
+    trimmed === prefix || trimmed.startsWith(`${prefix} `)
+  );
+}
+
+function createApproval(config: ApprovalConfig) {
+  return ({ command }: { command: string }) => {
+    if (config.mode === "background") return false;
+
+    if (config.mode === "delegated") {
+      return !matchesTrustedCommand(command, config.trust);
+    }
+
+    return !matchesTrustedCommand(command, SAFE_PREFIXES);
+  };
+}
+
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
 }
 
-function createBashTool(operations: BashOperations, safePrefixes: string[]) {
-  function isSafe(command: string): boolean {
-    const trimmed = command.trim();
-    if (/[;&|<>`$\n\r]/.test(trimmed)) return false;
-    return safePrefixes.some((prefix) =>
-      trimmed === prefix || trimmed.startsWith(`${prefix} `)
-    );
-  }
-
+function createBashTool(
+  operations: BashOperations,
+  needsApproval: (input: { command: string }) => boolean,
+) {
   return tool({
     description: `Execute a shell command in the working directory.
 
@@ -123,7 +143,7 @@ function createBashTool(operations: BashOperations, safePrefixes: string[]) {
 
     DO NOT USE FOR: reading files (use read), searching code (use grep).
   
-    USAGE: command is a single shell string. Commands not in the safe-prefix allowlist are blocked and return a clear error message.
+    USAGE: command is a single shell string. Commands needing approval are blocked and return a clear error message.
 
     EXAMPLES:
       - List files: command "ls -la"
@@ -133,7 +153,7 @@ function createBashTool(operations: BashOperations, safePrefixes: string[]) {
       command: z.string().describe("Shell command to execute"),
     }),
     execute: async ({ command }) => {
-      if (!isSafe(command)) {
+      if (needsApproval({ command })) {
         return `Blocked: "${command}" requires approval.`;
       }
       const { stdout, exitCode } = await operations.exec(command);
@@ -160,7 +180,7 @@ const localOps: BashOperations = {
   },
 };
 
-const bash = createBashTool(localOps, SAFE_PREFIXES);
+const bash = createBashTool(localOps, createApproval({ mode: "interactive" }));
 
 const agent = new ToolLoopAgent({
   model: deepseek("deepseek-flash"),
