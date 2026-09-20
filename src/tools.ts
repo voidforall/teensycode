@@ -99,43 +99,76 @@ USAGE: commands needing approval are blocked. Output is capped at 5,000 characte
   });
 }
 
-export function createTaskTool(sandbox: Sandbox, parentTools: {
+type ResearchTools = {
   read: ReturnType<typeof createReadTool>;
   grep: ReturnType<typeof createGrepTool>;
-}, executorNeedsApproval: (input: { command: string }) => boolean) {
+};
+
+function buildExplorer(sandbox: Sandbox, parentTools: ResearchTools) {
+  const model = deepseek("deepseek-flash");
+  const stepBudget = 5;
+  return new ToolLoopAgent({
+    model,
+    instructions: `You are an explorer agent. Investigate and report back concisely.
+Working directory: ${sandbox.workingDirectory}`,
+    tools: parentTools,
+    stopWhen: stepCountIs(stepBudget),
+  });
+}
+
+function buildExecutor(
+  sandbox: Sandbox,
+  parentTools: ResearchTools,
+  needsApproval: (input: { command: string }) => boolean,
+) {
+  const model = deepseek("deepseek-v4-pro");
+  const stepBudget = 15;
+  return new ToolLoopAgent({
+    model,
+    instructions: `You are an executor agent. Carry out the delegated task using your available tools, then report what you did and verified.
+Working directory: ${sandbox.workingDirectory}
+Do not ask questions, explore beyond the task, or claim a blocked action succeeded.`,
+    tools: { ...parentTools, bash: createBashTool(sandbox, needsApproval) },
+    stopWhen: stepCountIs(stepBudget),
+  });
+}
+
+async function runSubagent(
+  role: "Explorer" | "Executor",
+  agent: { generate: (input: { prompt: string }) => Promise<{ text: string; steps: readonly unknown[] }> },
+  description: string,
+) {
+  try {
+    const { text, steps } = await agent.generate({ prompt: description });
+    return text ? `[${role}: ${steps.length} steps]\n${text}` : `(no response from ${role})`;
+  } catch (error) {
+    return `${role} error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+export function createTaskTool(
+  sandbox: Sandbox,
+  parentTools: ResearchTools,
+  executorNeedsApproval: (input: { command: string }) => boolean,
+) {
   return tool({
     description: `Delegate a self-contained task to a subagent.
-Use subagentType "explorer" for read-only codebase research (read and grep).
-Use subagentType "executor" for bounded execution and verification (read, grep, and approved bash commands).
-Neither subagent can ask the user questions. The executor cannot edit files or run unapproved commands.`,
+Explorer (default): read-only research with DeepSeek Flash. Use for searching across files and gathering context.
+Executor: bounded execution and verification with DeepSeek V4 Pro. It can read, grep, and run approved bash commands, but cannot edit files.
+WHEN TO USE: multi-file research (explorer) or a focused task with known verification commands (executor).
+WHEN NOT TO USE: ambiguous requirements (ask the user directly; use askUser if available) or architectural decisions (the parent decides).
+DO NOT USE FOR: single-step work the parent can do directly.`,
     inputSchema: z.object({
       description: z.string().describe("The task to delegate, with enough context to work independently"),
       subagentType: z.enum(["explorer", "executor"]).default("explorer")
         .describe("Explorer for research; executor for approved command execution"),
     }),
     execute: async ({ description, subagentType }) => {
-      const isExecutor = subagentType === "executor";
-      const subagent = new ToolLoopAgent({
-        model: deepseek(isExecutor ? "deepseek-v4-pro" : "deepseek-flash"),
-        instructions: isExecutor
-          ? `You are an executor agent. Carry out the delegated task using your available tools, then report what you did and verified. Do not ask the user questions or claim a blocked action succeeded.
-Working directory: ${sandbox.workingDirectory}`
-          : `You are an explorer agent. Investigate and report back concisely.
-Working directory: ${sandbox.workingDirectory}`,
-        tools: isExecutor
-          ? { ...parentTools, bash: createBashTool(sandbox, executorNeedsApproval) }
-          : parentTools,
-        stopWhen: stepCountIs(isExecutor ? 15 : 5),
-      });
-
-      try {
-        const { text, steps } = await subagent.generate({ prompt: description });
-        return text
-          ? `[${isExecutor ? "Executor" : "Explorer"}: ${steps.length} steps]\n${text}`
-          : "(no response from subagent)";
-      } catch (error) {
-        return `Subagent error: ${error instanceof Error ? error.message : String(error)}`;
-      }
+      // If subagents gain access to task, check parent-role spawn permissions here.
+      const agent = subagentType === "executor"
+        ? buildExecutor(sandbox, parentTools, executorNeedsApproval)
+        : buildExplorer(sandbox, parentTools);
+      return runSubagent(subagentType === "executor" ? "Executor" : "Explorer", agent, description);
     },
   });
 }
