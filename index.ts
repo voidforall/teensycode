@@ -9,7 +9,7 @@ import { addCacheControl } from "./src/cache";
 import type { SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
-import { createBashTool, createGrepTool, createReadTool } from "./src/tools";
+import { createBashTool, createGrepTool, createReadTool, createTaskTool } from "./src/tools";
 
 const cwd = process.argv[2] || process.cwd();
 
@@ -76,6 +76,11 @@ const tools = {
   ),
 };
 
+const tools_with_task = {
+  ...tools,
+  task: createTaskTool(sandbox, { read: tools.read, grep: tools.grep }),
+};
+
 const instructions = buildSystemPrompt({
   workingDirectory: sandbox.workingDirectory,
   sandboxType: sandbox.type,
@@ -86,7 +91,7 @@ const instructions = buildSystemPrompt({
 const agent = new ToolLoopAgent({
   model: deepseek("deepseek-flash"),
   instructions,
-  tools,
+  tools: tools_with_task,
   stopWhen: stepCountIs(10),
   onStepFinish: ({ usage, stepNumber }) => {
     console.error(
