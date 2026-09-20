@@ -1,4 +1,4 @@
-import { ToolLoopAgent, stepCountIs } from "ai";
+import { ToolLoopAgent, stepCountIs, tool, pruneMessages } from "ai";
 import { deepseek } from "@ai-sdk/deepseek";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -90,6 +90,12 @@ const agent = new ToolLoopAgent({
   onStepFinish: ({ usage, stepNumber }) => {
     console.error(`Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output`,);
   },
+  prepareStep: ({ messages }) => ({
+    messages: pruneMessages({
+      messages,
+      toolCalls: "before-last-3-messages",
+    }),
+  }),
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
