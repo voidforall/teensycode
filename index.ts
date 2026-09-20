@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { buildSystemPrompt } from "./src/system";
+import { addCacheControl } from "./src/cache";
 import type { SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
@@ -88,14 +89,17 @@ const agent = new ToolLoopAgent({
   tools,
   stopWhen: stepCountIs(10),
   onStepFinish: ({ usage, stepNumber }) => {
-    console.error(`Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output`,);
+    console.error(
+      `Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output, ${usage.inputTokenDetails.cacheReadTokens ?? 0} cached`,
+    );
   },
-  prepareStep: ({ messages }) => ({
-    messages: pruneMessages({
+  prepareStep: ({ messages }) => {
+    const pruned = pruneMessages({
       messages,
       toolCalls: "before-last-3-messages",
-    }),
-  }),
+    });
+    return { messages: addCacheControl(pruned) };
+  },
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
