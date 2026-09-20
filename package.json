@@ -10,10 +10,13 @@
   "dependencies": {
     "@ai-sdk/deepseek": "^2.0.64",
     "ai": "^6.0.0",
+    "express": "^5.2.1",
+    "just-bash": "^3.4.2",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.2"
   }
 }

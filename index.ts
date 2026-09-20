@@ -2,12 +2,25 @@ import { ToolLoopAgent, stepCountIs } from "ai";
 import { deepseek } from "@ai-sdk/deepseek";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sandbox-local";
+import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { createBashTool, createGrepTool, createReadTool } from "./src/tools";
 
 const cwd = process.argv[2] || process.cwd();
+
+const sandboxType = process.env.SANDBOX || "local";
+
+if (sandboxType === "just-bash" && typeof Bun !== "undefined") {
+  const result = spawnSync("node", ["--import", "tsx", import.meta.filename, ...process.argv.slice(2)], {
+    stdio: "inherit",
+    env: process.env,
+  });
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
+}
 
 const agentPath = join(cwd, "AGENTS.md");
 const projectContext = existsSync(agentPath)
@@ -44,15 +57,21 @@ function createApproval(config: ApprovalConfig) {
   };
 }
 
-const sandbox = createLocalSandbox(cwd);
+const sandbox =
+  sandboxType === "just-bash"
+    ? await createJustBashSandbox(cwd)
+    : createLocalSandbox(cwd);
 const tools = {
   read: createReadTool(sandbox),
   grep: createGrepTool(sandbox),
-  bash: createBashTool(sandbox, createApproval({ mode: "interactive" })),
+  bash: createBashTool(
+    sandbox,
+    createApproval({ mode: sandbox.type === "just-bash" ? "background" : "interactive" }),
+  ),
 };
 
 const instructions = buildSystemPrompt({
-  workingDirectory: cwd,
+  workingDirectory: sandbox.workingDirectory,
   sandboxType: sandbox.type,
   toolNames: Object.keys(tools),
   projectContext,
