@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { buildSystemPrompt } from "./src/system";
+import type { SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { createBashTool, createGrepTool, createReadTool } from "./src/tools";
@@ -61,6 +62,10 @@ const sandbox =
   sandboxType === "just-bash"
     ? await createJustBashSandbox(cwd)
     : createLocalSandbox(cwd);
+
+const lifecycle: SandboxLifecycle = {};
+await lifecycle.afterStart?.(sandbox);
+
 const tools = {
   read: createReadTool(sandbox),
   grep: createGrepTool(sandbox),
@@ -85,10 +90,15 @@ const agent = new ToolLoopAgent({
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
-const { text, steps } = await agent.generate({ prompt });
+try {
+  const { text, steps } = await agent.generate({ prompt });
 
-for (const step of steps) {
-  for (const call of step.toolCalls) console.log(`Tool: ${call.toolName} ${JSON.stringify(call.input)}`);
+  for (const step of steps) {
+    for (const call of step.toolCalls) console.log(`Tool: ${call.toolName} ${JSON.stringify(call.input)}`);
+  }
+  console.log(text);
+  console.log(`\n(${steps.length} steps)`);
+} finally {
+  await lifecycle.beforeStop?.(sandbox);
+  await sandbox.stop();
 }
-console.log(text);
-console.log(`\n(${steps.length} steps)`);
