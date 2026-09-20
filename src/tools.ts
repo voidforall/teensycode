@@ -102,32 +102,39 @@ USAGE: commands needing approval are blocked. Output is capped at 5,000 characte
 export function createTaskTool(sandbox: Sandbox, parentTools: {
   read: ReturnType<typeof createReadTool>;
   grep: ReturnType<typeof createGrepTool>;
-}) {
+}, executorNeedsApproval: (input: { command: string }) => boolean) {
   return tool({
-    description: `Delegate research to a read-only subagent.
-WHEN TO USE: investigating a codebase, finding patterns, gathering context
-  across many files.
-WHEN NOT TO USE: making changes (the subagent cannot write or run commands).
-DO NOT USE FOR: tasks that need decisions or askUser interactions.`,
+    description: `Delegate a self-contained task to a subagent.
+Use subagentType "explorer" for read-only codebase research (read and grep).
+Use subagentType "executor" for bounded execution and verification (read, grep, and approved bash commands).
+Neither subagent can ask the user questions. The executor cannot edit files or run unapproved commands.`,
     inputSchema: z.object({
-      description: z.string().describe("What the subagent should investigate"),
+      description: z.string().describe("The task to delegate, with enough context to work independently"),
+      subagentType: z.enum(["explorer", "executor"]).default("explorer")
+        .describe("Explorer for research; executor for approved command execution"),
     }),
-    execute: async ({ description }) => {
-      const explorer = new ToolLoopAgent({
-        model: deepseek("deepseek-flash"),
-        instructions: `You are an explorer agent. Investigate and report back concisely.
+    execute: async ({ description, subagentType }) => {
+      const isExecutor = subagentType === "executor";
+      const subagent = new ToolLoopAgent({
+        model: deepseek(isExecutor ? "deepseek-v4-pro" : "deepseek-flash"),
+        instructions: isExecutor
+          ? `You are an executor agent. Carry out the delegated task using your available tools, then report what you did and verified. Do not ask the user questions or claim a blocked action succeeded.
+Working directory: ${sandbox.workingDirectory}`
+          : `You are an explorer agent. Investigate and report back concisely.
 Working directory: ${sandbox.workingDirectory}`,
-        tools: { read: parentTools.read, grep: parentTools.grep },
-        stopWhen: stepCountIs(5),
+        tools: isExecutor
+          ? { ...parentTools, bash: createBashTool(sandbox, executorNeedsApproval) }
+          : parentTools,
+        stopWhen: stepCountIs(isExecutor ? 15 : 5),
       });
 
       try {
-        const { text, steps } = await explorer.generate({ prompt: description });
+        const { text, steps } = await subagent.generate({ prompt: description });
         return text
-          ? `[Explorer: ${steps.length} steps]\n${text}`
+          ? `[${isExecutor ? "Executor" : "Explorer"}: ${steps.length} steps]\n${text}`
           : "(no response from subagent)";
-      } catch (e: any) {
-        return `Subagent error: ${e.message}`;
+      } catch (error) {
+        return `Subagent error: ${error instanceof Error ? error.message : String(error)}`;
       }
     },
   });
