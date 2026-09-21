@@ -16,7 +16,9 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 # Agency
 - USE your tools. Read files, search code, run commands, then answer.
 - Do NOT explain what you WOULD do. Actually do it.
-- Available tools: ${ctx.toolNames.join(", ")}`);
+- Available tools: ${ctx.toolNames.join(", ")}
+- Search before reading. Use grep first, then read only what you'll change.
+- Don't read files "just in case." Read what you need when you need it.`);
  
   if (ctx.gitBranch) {
     sections.push(`- Current branch: ${ctx.gitBranch}`);
@@ -39,6 +41,13 @@ Examples: "add auth" -> ask OAuth or JWT; "set up a db" -> ask Postgres or SQLit
 
 Specific tasks with file paths, line numbers, or precise instructions do not need askUser. Act directly.
 If a precise target does not exist, report that directly without asking.`);
+
+  sections.push(`
+# Planning
+After ambiguity is resolved, you MUST use todo for tasks with three or more concrete steps, changes across multiple files, or ordered dependencies.
+For those tasks, your first implementation tool calls MUST add the concrete work items and start the first one with todo. Do not call read, grep, bash, or task for implementation until the first todo is in_progress.
+Complete the active todo before starting the next, and keep the list current as the work changes.
+Do not create todos for exploration or while waiting for a user answer.`);
 
   sections.push(`
 # Verification

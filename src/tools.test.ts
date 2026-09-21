@@ -9,6 +9,7 @@ import {
   createGrepTool,
   createReadTool,
   createTaskTool,
+  createTodoTool,
 } from "./tools";
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
@@ -158,6 +159,28 @@ describe("createAskUserTool", () => {
       "3. Session cookies\n\n" +
       "(Awaiting user response.)",
     );
+  });
+});
+
+describe("createTodoTool", () => {
+  test("allows only one in_progress item at a time", async () => {
+    const todo = createTodoTool();
+    const first = await todo.execute!({ action: "add", description: "First" }, {} as never) as string;
+    const second = await todo.execute!({ action: "add", description: "Second" }, {} as never) as string;
+    const firstId = first.match(/\[([^\]]+)\]/)?.[1];
+    const secondId = second.match(/\[([^\]]+)\]/)?.[1];
+
+    expect(firstId).toBeDefined();
+    expect(secondId).toBeDefined();
+    expect(await todo.execute!({ action: "start", id: firstId }, {} as never))
+      .toBe(`Started: [${firstId}] First`);
+    expect(await todo.execute!({ action: "start", id: secondId }, {} as never))
+      .toBe(`Already working on: [${firstId}] First. Complete it first.`);
+    expect(await todo.execute!({ action: "list" }, {} as never))
+      .toContain(`[in_progress] ${firstId}: First`);
+
+    await todo.execute!({ action: "complete", id: firstId }, {} as never);
+    await todo.execute!({ action: "complete", id: secondId }, {} as never);
   });
 });
 
