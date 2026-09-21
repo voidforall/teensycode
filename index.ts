@@ -16,6 +16,7 @@ import {
   createGrepTool,
   createReadTool,
   createTaskTool,
+  createTodoTool,
 } from "./src/tools";
 
 const cwd = process.argv[2] || process.cwd();
@@ -52,6 +53,7 @@ const tools = {
     createApproval({ mode: sandbox.type === "just-bash" ? "background" : "interactive" }),
   ),
   askUser: createAskUserTool(),
+  todo: createTodoTool(),
 };
 
 const tools_with_task = {
