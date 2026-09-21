@@ -30,3 +30,28 @@ test("requires todo planning before implementing clear multi-step tasks", () => 
   expect(prompt).toContain("until the first todo is in_progress");
   expect(prompt).toContain("Do not create todos for exploration or while waiting for a user answer");
 });
+
+test("lists discovered verification gates and requires scoped claims", () => {
+  const prompt = buildSystemPrompt({
+    workingDirectory: "/project",
+    sandboxType: "test",
+    toolNames: ["bash"],
+    verificationCommands: ["bun run typecheck", "bun test"],
+  });
+
+  expect(prompt).toContain("1. `bun run typecheck`");
+  expect(prompt).toContain("2. `bun test`");
+  expect(prompt).toContain("Distinguish failures you caused from failures that were already there");
+  expect(prompt).toContain("Run each gate, capture the output, and report what passed and what didn't");
+});
+
+test("states when no verification commands were discovered", () => {
+  const prompt = buildSystemPrompt({
+    workingDirectory: "/project",
+    sandboxType: "test",
+    toolNames: [],
+    verificationCommands: [],
+  });
+
+  expect(prompt).toContain("(no verification commands discovered for this project)");
+});

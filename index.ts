@@ -10,6 +10,7 @@ import { createApproval } from "./src/approval";
 import type { SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
+import { discoverGates } from "./src/verification";
 import {
   createAskUserTool,
   createBashTool,
@@ -44,6 +45,7 @@ const sandbox =
 
 const lifecycle: SandboxLifecycle = {};
 await lifecycle.afterStart?.(sandbox);
+const verificationCommands = await discoverGates(sandbox);
 
 const tools = {
   read: createReadTool(sandbox),
@@ -73,6 +75,7 @@ const instructions = buildSystemPrompt({
   sandboxType: sandbox.type,
   toolNames: Object.keys(tools_with_task),
   projectContext,
+  verificationCommands,
 });
 
 const agent = new ToolLoopAgent({
