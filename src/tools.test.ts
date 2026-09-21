@@ -3,7 +3,13 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import type { Sandbox } from "./sandbox";
 import { createLocalSandbox } from "./sandbox-local";
-import { createBashTool, createGrepTool, createReadTool, createTaskTool } from "./tools";
+import {
+  createAskUserTool,
+  createBashTool,
+  createGrepTool,
+  createReadTool,
+  createTaskTool,
+} from "./tools";
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
   return {
@@ -120,6 +126,38 @@ describe("createTaskTool", () => {
       .toBe("executor");
     expect(schema.safeParse({ description: "Run verification", subagentType: "unknown" }).success)
       .toBe(false);
+  });
+});
+
+describe("createAskUserTool", () => {
+  test("accepts two to four answer options", () => {
+    const askUser = createAskUserTool();
+    const schema = askUser.inputSchema as z.ZodTypeAny;
+
+    expect(schema.safeParse({ question: "Which database?", options: ["Postgres"] }).success)
+      .toBe(false);
+    expect(schema.safeParse({ question: "Which database?", options: ["Postgres", "SQLite"] }).success)
+      .toBe(true);
+    expect(schema.safeParse({
+      question: "Which database?",
+      options: ["Postgres", "SQLite", "MySQL", "MariaDB", "MongoDB"],
+    }).success).toBe(false);
+  });
+
+  test("returns the pending question as a numbered list", async () => {
+    const askUser = createAskUserTool();
+
+    expect(await askUser.execute!({
+      question: "Which authentication strategy should I use?",
+      options: ["OAuth", "JWT", "Session cookies"],
+    }, {} as never)).toBe(
+      'Asked: "Which authentication strategy should I use?"\n' +
+      "Options:\n" +
+      "1. OAuth\n" +
+      "2. JWT\n" +
+      "3. Session cookies\n\n" +
+      "(Awaiting user response.)",
+    );
   });
 });
 

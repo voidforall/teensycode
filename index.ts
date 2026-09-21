@@ -10,7 +10,13 @@ import { createApproval } from "./src/approval";
 import type { SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
-import { createBashTool, createGrepTool, createReadTool, createTaskTool } from "./src/tools";
+import {
+  createAskUserTool,
+  createBashTool,
+  createGrepTool,
+  createReadTool,
+  createTaskTool,
+} from "./src/tools";
 
 const cwd = process.argv[2] || process.cwd();
 
@@ -45,6 +51,7 @@ const tools = {
     sandbox,
     createApproval({ mode: sandbox.type === "just-bash" ? "background" : "interactive" }),
   ),
+  askUser: createAskUserTool(),
 };
 
 const tools_with_task = {

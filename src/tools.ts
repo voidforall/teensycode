@@ -8,6 +8,25 @@ const MAX_READ_LINES = 500;
 const MAX_GREP_MATCHES = 50;
 const MAX_BASH_CHARS = 5_000;
 
+export function createAskUserTool() {
+  return tool({
+    description: `Ask the user a multiple-choice question.
+WHEN TO USE: scoping ambiguous tasks, choosing between approaches, resolving a missing detail before acting.
+WHEN NOT TO USE: you already have enough context to proceed.
+DO NOT USE FOR: rhetorical questions or progress updates.`,
+    inputSchema: z.object({
+      question: z.string().describe("The question to ask the user"),
+      options: z.array(z.string()).min(2).max(4)
+        .describe("Two to four options for the user to pick from"),
+    }),
+    execute: async ({ question, options }) => {
+      const formatted = options.map((option, index) => `${index + 1}. ${option}`).join("\n");
+      console.log(`\nQuestion: ${question}\n${formatted}\n`);
+      return `Asked: "${question}"\nOptions:\n${formatted}\n\n(Awaiting user response.)`;
+    },
+  });
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

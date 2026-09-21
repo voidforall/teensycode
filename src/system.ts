@@ -29,6 +29,18 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 - No new dependencies without asking`);
 
   sections.push(`
+# Handling Ambiguity
+When the task is ambiguous or has multiple valid approaches:
+1. Search the code or docs to gather context first
+2. Use askUser to let the user choose. Do NOT guess.
+3. Act only after the user answers
+
+Examples: "add auth" -> ask OAuth or JWT; "set up a db" -> ask Postgres or SQLite.
+
+Specific tasks with file paths, line numbers, or precise instructions do not need askUser. Act directly.
+If a precise target does not exist, report that directly without asking.`);
+
+  sections.push(`
 # Verification
 After making changes, verify your work:
 1. Run \`npx tsc --noEmit\` when TypeScript is present
@@ -48,4 +60,3 @@ ${ctx.projectContext}`);
  
   return sections.join("\n");
 }
-
