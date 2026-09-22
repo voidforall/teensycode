@@ -83,7 +83,7 @@ DO NOT USE FOR: rhetorical questions or progress updates.`,
     }),
     execute: async ({ question, options }) => {
       const formatted = options.map((option, index) => `${index + 1}. ${option}`).join("\n");
-      console.log(`\nQuestion: ${question}\n${formatted}\n`);
+      console.error(`\nQuestion: ${question}\n${formatted}\n`);
       return `Asked: "${question}"\nOptions:\n${formatted}\n\n(Awaiting user response.)`;
     },
   });

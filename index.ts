@@ -150,13 +150,27 @@ try {
     },
   });
 
-  const { text, steps } = await agent.generate({ prompt });
-
-  for (const step of steps) {
-    for (const call of step.toolCalls) console.log(`Tool: ${call.toolName} ${JSON.stringify(call.input)}`);
+  const result = await agent.stream({ prompt });
+  for await (const chunk of result.fullStream) {
+    switch (chunk.type) {
+      case "text-delta":
+        process.stdout.write(chunk.text);
+        break;
+      case "tool-call":
+        console.error(`\n[tool] ${chunk.toolName}(${JSON.stringify(chunk.input)})`);
+        break;
+      case "tool-result": {
+        const output = typeof chunk.output === "string"
+          ? chunk.output
+          : JSON.stringify(chunk.output) ?? String(chunk.output);
+        console.error(`  -> ${output.slice(0, 100)}`);
+        break;
+      }
+      case "error":
+        throw chunk.error;
+    }
   }
-  console.log(text);
-  console.log(`\n(${steps.length} steps)`);
+  process.stdout.write("\n");
 } finally {
   process.off("SIGINT", handleSigint);
   await shutdown();
