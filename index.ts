@@ -1,28 +1,20 @@
-import { ToolLoopAgent, stepCountIs, pruneMessages } from "ai";
+import { ToolLoopAgent, stepCountIs, pruneMessages, tool } from "ai";
 import { deepseek } from "@ai-sdk/deepseek";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
+import { z } from "zod";
 
 import { buildSystemPrompt } from "./src/system";
 import { addCacheControl } from "./src/cache";
-import { createApproval } from "./src/approval";
 import type { Sandbox, SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { discoverGates } from "./src/verification";
 import { discoverSkills } from "./src/skills";
-import {
-  createAskUserTool,
-  createBashTool,
-  createGrepTool,
-  createLoadSkillTool,
-  createReadTool,
-  createTaskTool,
-  createTodoTool,
-} from "./src/tools";
+import { createRegistry, registerBuiltins } from "./src/registry";
 
 const { values, positionals } = parseArgs({
   args: process.argv.slice(2),
@@ -107,34 +99,18 @@ try {
     join(homedir(), ".harness", "skills"),
   ]);
 
-  const tools = {
-    read: createReadTool(sandbox),
-    grep: createGrepTool(sandbox),
-    bash: createBashTool(
-      sandbox,
-      createApproval({ mode: sandbox.type === "just-bash" ? "background" : "interactive" }),
-    ),
-    askUser: createAskUserTool(),
-    todo: createTodoTool(),
-    loadSkill: createLoadSkillTool(skills),
-  };
-
-  const tools_with_task = {
-    ...tools,
-    task: createTaskTool(
-      sandbox,
-      { read: tools.read, grep: tools.grep },
-      createApproval({
-        mode: "delegated",
-        trust: ["bun test", "bun run typecheck", "npx tsc --noEmit"],
-      }),
-    ),
-  };
+  const registry = createRegistry();
+  registerBuiltins(registry, sandbox, skills);
+  registry.register("now", tool({
+    description: "Return the current timestamp. Use when asked for the current time.",
+    inputSchema: z.object({}),
+    execute: async () => new Date().toISOString(),
+  }));
 
   const instructions = buildSystemPrompt({
     workingDirectory: sandbox.workingDirectory,
     sandboxType: sandbox.type,
-    toolNames: Object.keys(tools_with_task),
+    toolNames: registry.list(),
     projectContext,
     verificationCommands,
     skills: skills.map(({ name, description }) => ({ name, description })),
@@ -143,7 +119,7 @@ try {
   const agent = new ToolLoopAgent({
     model: deepseek(modelName),
     instructions,
-    tools: tools_with_task,
+    tools: Object.fromEntries(registry.entries()),
     stopWhen: stepCountIs(10),
     onStepFinish: ({ usage, stepNumber }) => {
       console.error(
