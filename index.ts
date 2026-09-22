@@ -1,6 +1,7 @@
 import { ToolLoopAgent, stepCountIs, pruneMessages } from "ai";
 import { deepseek } from "@ai-sdk/deepseek";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
@@ -12,10 +13,12 @@ import type { Sandbox, SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { discoverGates } from "./src/verification";
+import { discoverSkills } from "./src/skills";
 import {
   createAskUserTool,
   createBashTool,
   createGrepTool,
+  createLoadSkillTool,
   createReadTool,
   createTaskTool,
   createTodoTool,
@@ -99,6 +102,10 @@ process.once("SIGINT", handleSigint);
 try {
   await lifecycle.afterStart?.(sandbox);
   const verificationCommands = await discoverGates(sandbox);
+  const skills = discoverSkills([
+    join(cwd, "skills"),
+    join(homedir(), ".harness", "skills"),
+  ]);
 
   const tools = {
     read: createReadTool(sandbox),
@@ -109,6 +116,7 @@ try {
     ),
     askUser: createAskUserTool(),
     todo: createTodoTool(),
+    loadSkill: createLoadSkillTool(skills),
   };
 
   const tools_with_task = {
@@ -129,6 +137,7 @@ try {
     toolNames: Object.keys(tools_with_task),
     projectContext,
     verificationCommands,
+    skills: skills.map(({ name, description }) => ({ name, description })),
   });
 
   const agent = new ToolLoopAgent({

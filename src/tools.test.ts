@@ -7,10 +7,14 @@ import {
   createAskUserTool,
   createBashTool,
   createGrepTool,
+  createLoadSkillTool,
   createReadTool,
   createTaskTool,
   createTodoTool,
 } from "./tools";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
   return {
@@ -47,6 +51,37 @@ describe("createReadTool", () => {
     expect(result).toContain("500: line 500");
     expect(result).not.toContain("501: line 501");
     expect(result).toEndWith("... (truncated at 500 lines)");
+  });
+});
+
+describe("createLoadSkillTool", () => {
+  test("loads full markdown by name and rejects unknown names", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teensycode-load-skill-"));
+    try {
+      const path = join(root, "SKILL.md");
+      const content = "---\ndescription: A test skill\n---\n# Test Skill\nFollow these steps.\n";
+      writeFileSync(path, content);
+      const loadSkill = createLoadSkillTool([{ name: "test-skill", description: "A test skill", path }]);
+
+      expect(await loadSkill.execute!({ name: "test-skill" }, {} as never)).toBe(content);
+      expect(await loadSkill.execute!({ name: "missing" }, {} as never)).toBe("Unknown skill: missing");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("caps long skill content", async () => {
+    const root = mkdtempSync(join(tmpdir(), "teensycode-load-skill-"));
+    try {
+      const path = join(root, "SKILL.md");
+      writeFileSync(path, "x".repeat(4_001));
+      const loadSkill = createLoadSkillTool([{ name: "long", description: "Long", path }]);
+
+      const result = await loadSkill.execute!({ name: "long" }, {} as never);
+      expect(result).toBe("x".repeat(4_000) + "\n... (truncated at 4000 chars)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

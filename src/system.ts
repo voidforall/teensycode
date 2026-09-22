@@ -5,6 +5,7 @@ export interface PromptContext {
   gitBranch?: string;
   projectContext?: string;
   verificationCommands?: string[];
+  skills?: { name: string; description: string }[];
 }
 
 export function buildSystemPrompt(ctx: PromptContext): string {
@@ -30,6 +31,13 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 - Prefer simple, minimal changes
 - Search before creating, and reuse existing patterns
 - No new dependencies without asking`);
+
+  if (ctx.skills?.length) {
+    sections.push(`
+# Skills
+The following skills are available. If the task names one or matches its description, call \`loadSkill\` before related work to read its full content.
+${ctx.skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n")}`);
+  }
 
   sections.push(`
 # Handling Ambiguity

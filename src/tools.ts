@@ -1,12 +1,37 @@
 import type { Sandbox } from "./sandbox";
+import type { Skill } from "./skills";
 import { deepseek } from "@ai-sdk/deepseek";
 import { ToolLoopAgent, stepCountIs, tool } from "ai";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 
 const MAX_READ_LINES = 500;
 const MAX_GREP_MATCHES = 50;
 const MAX_BASH_CHARS = 5_000;
+const MAX_SKILL_CHARS = 4_000;
+
+export function createLoadSkillTool(skills: Skill[]) {
+  const byName = new Map(skills.map((skill) => [skill.name, skill]));
+
+  return tool({
+    description: `Load the full content of an available skill by name.
+WHEN TO USE: the task names a skill or matches one listed in the # Skills section of your instructions.
+WHEN NOT TO USE: tasks unrelated to any listed skill.
+DO NOT USE FOR: names not listed in the # Skills section.`,
+    inputSchema: z.object({
+      name: z.string().describe("Skill name as listed in the # Skills section"),
+    }),
+    execute: async ({ name }) => {
+      const skill = byName.get(name);
+      if (!skill) return `Unknown skill: ${name}`;
+      const content = readFileSync(skill.path, "utf-8");
+      return content.length > MAX_SKILL_CHARS
+        ? `${content.slice(0, MAX_SKILL_CHARS)}\n... (truncated at ${MAX_SKILL_CHARS} chars)`
+        : content;
+    },
+  });
+}
 
 interface TodoItem {
   id: string;

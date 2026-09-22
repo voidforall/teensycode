@@ -55,3 +55,17 @@ test("states when no verification commands were discovered", () => {
 
   expect(prompt).toContain("(no verification commands discovered for this project)");
 });
+
+test("lists skill names and descriptions without embedding their content", () => {
+  const prompt = buildSystemPrompt({
+    workingDirectory: "/project",
+    sandboxType: "test",
+    toolNames: ["loadSkill"],
+    skills: [{ name: "auth-patterns", description: "Authentication guidance" }],
+  });
+
+  expect(prompt).toContain("# Skills");
+  expect(prompt).toContain("- auth-patterns: Authentication guidance");
+  expect(prompt).toContain("call `loadSkill`");
+  expect(prompt).not.toContain("# Auth Patterns");
+});
