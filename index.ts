@@ -1,13 +1,14 @@
-import { ToolLoopAgent, stepCountIs, tool, pruneMessages } from "ai";
+import { ToolLoopAgent, stepCountIs, pruneMessages } from "ai";
 import { deepseek } from "@ai-sdk/deepseek";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { parseArgs } from "node:util";
 
 import { buildSystemPrompt } from "./src/system";
 import { addCacheControl } from "./src/cache";
 import { createApproval } from "./src/approval";
-import type { SandboxLifecycle } from "./src/sandbox";
+import type { Sandbox, SandboxLifecycle } from "./src/sandbox";
 import { createLocalSandbox } from "./src/sandbox-local";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { discoverGates } from "./src/verification";
@@ -20,17 +21,38 @@ import {
   createTodoTool,
 } from "./src/tools";
 
-const cwd = process.argv[2] || process.cwd();
+const { values, positionals } = parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    sandbox: { type: "string", default: process.env.SANDBOX || "local" },
+    model: { type: "string", default: "deepseek-flash" },
+  },
+  allowPositionals: true,
+});
 
-const sandboxType = process.env.SANDBOX || "local";
+const cwd = resolve(positionals[0] || process.cwd());
+const prompt = positionals.slice(1).join(" ") || "Hello!";
+const sandboxType = values.sandbox!;
+const modelName = values.model!;
 
 if (sandboxType === "just-bash" && typeof Bun !== "undefined") {
-  const result = spawnSync("node", ["--import", "tsx", import.meta.filename, ...process.argv.slice(2)], {
+  const child = spawn("node", ["--import", "tsx", import.meta.filename, ...process.argv.slice(2)], {
     stdio: "inherit",
     env: process.env,
+    detached: true,
   });
-  if (result.error) throw result.error;
-  process.exit(result.status ?? 1);
+  const forwardSigint = () => child.kill("SIGINT");
+  process.on("SIGINT", forwardSigint);
+  let exitCode: number;
+  try {
+    exitCode = await new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code) => resolve(code ?? 1));
+    });
+  } finally {
+    process.off("SIGINT", forwardSigint);
+  }
+  process.exit(exitCode);
 }
 
 const agentPath = join(cwd, "AGENTS.md");
@@ -38,67 +60,96 @@ const projectContext = existsSync(agentPath)
   ? readFileSync(agentPath, "utf-8")
   : undefined;
 
-const sandbox =
-  sandboxType === "just-bash"
-    ? await createJustBashSandbox(cwd)
-    : createLocalSandbox(cwd);
+async function sandboxFromFlag(name: string, dir: string): Promise<Sandbox> {
+  switch (name) {
+    case "local": return createLocalSandbox(dir);
+    case "just-bash": return createJustBashSandbox(dir);
+    default: throw new Error(`Unknown sandbox: ${name}. Use local or just-bash.`);
+  }
+}
+
+const sandbox = await sandboxFromFlag(sandboxType, cwd);
+console.error(`Sandbox: ${sandbox.type}`);
 
 const lifecycle: SandboxLifecycle = {};
-await lifecycle.afterStart?.(sandbox);
-const verificationCommands = await discoverGates(sandbox);
+let shutdownPromise: Promise<void> | undefined;
+function shutdown(): Promise<void> {
+  shutdownPromise ??= (async () => {
+    try {
+      await lifecycle.beforeStop?.(sandbox);
+    } finally {
+      await sandbox.stop();
+    }
+  })();
+  return shutdownPromise;
+}
 
-const tools = {
-  read: createReadTool(sandbox),
-  grep: createGrepTool(sandbox),
-  bash: createBashTool(
-    sandbox,
-    createApproval({ mode: sandbox.type === "just-bash" ? "background" : "interactive" }),
-  ),
-  askUser: createAskUserTool(),
-  todo: createTodoTool(),
-};
+function handleSigint(): void {
+  console.error("\nShutting down...");
+  void shutdown().then(
+    () => process.exit(0),
+    (error) => {
+      console.error(error);
+      process.exit(1);
+    },
+  );
+}
+process.once("SIGINT", handleSigint);
 
-const tools_with_task = {
-  ...tools,
-  task: createTaskTool(
-    sandbox,
-    { read: tools.read, grep: tools.grep },
-    createApproval({
-      mode: "delegated",
-      trust: ["bun test", "bun run typecheck", "npx tsc --noEmit"],
-    }),
-  ),
-};
-
-const instructions = buildSystemPrompt({
-  workingDirectory: sandbox.workingDirectory,
-  sandboxType: sandbox.type,
-  toolNames: Object.keys(tools_with_task),
-  projectContext,
-  verificationCommands,
-});
-
-const agent = new ToolLoopAgent({
-  model: deepseek("deepseek-flash"),
-  instructions,
-  tools: tools_with_task,
-  stopWhen: stepCountIs(10),
-  onStepFinish: ({ usage, stepNumber }) => {
-    console.error(
-      `Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output, ${usage.inputTokenDetails.cacheReadTokens ?? 0} cached`,
-    );
-  },
-  prepareStep: ({ messages }) => {
-    const pruned = pruneMessages({
-      messages,
-      toolCalls: "before-last-3-messages",
-    });
-    return { messages: addCacheControl(pruned) };
-  },
-});
-
-const prompt = process.argv.slice(3).join(" ") || "Hello!";
 try {
+  await lifecycle.afterStart?.(sandbox);
+  const verificationCommands = await discoverGates(sandbox);
+
+  const tools = {
+    read: createReadTool(sandbox),
+    grep: createGrepTool(sandbox),
+    bash: createBashTool(
+      sandbox,
+      createApproval({ mode: sandbox.type === "just-bash" ? "background" : "interactive" }),
+    ),
+    askUser: createAskUserTool(),
+    todo: createTodoTool(),
+  };
+
+  const tools_with_task = {
+    ...tools,
+    task: createTaskTool(
+      sandbox,
+      { read: tools.read, grep: tools.grep },
+      createApproval({
+        mode: "delegated",
+        trust: ["bun test", "bun run typecheck", "npx tsc --noEmit"],
+      }),
+    ),
+  };
+
+  const instructions = buildSystemPrompt({
+    workingDirectory: sandbox.workingDirectory,
+    sandboxType: sandbox.type,
+    toolNames: Object.keys(tools_with_task),
+    projectContext,
+    verificationCommands,
+  });
+
+  const agent = new ToolLoopAgent({
+    model: deepseek(modelName),
+    instructions,
+    tools: tools_with_task,
+    stopWhen: stepCountIs(10),
+    onStepFinish: ({ usage, stepNumber }) => {
+      console.error(
+        `Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output, ${usage.inputTokenDetails.cacheReadTokens ?? 0} cached`,
+      );
+    },
+    prepareStep: ({ messages }) => {
+      const pruned = pruneMessages({
+        messages,
+        toolCalls: "before-last-3-messages",
+      });
+      return { messages: addCacheControl(pruned) };
+    },
+  });
+
   const { text, steps } = await agent.generate({ prompt });
 
   for (const step of steps) {
@@ -107,6 +158,6 @@ try {
   console.log(text);
   console.log(`\n(${steps.length} steps)`);
 } finally {
-  await lifecycle.beforeStop?.(sandbox);
-  await sandbox.stop();
+  process.off("SIGINT", handleSigint);
+  await shutdown();
 }

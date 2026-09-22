@@ -8,7 +8,7 @@ The course incrementally builds a TypeScript coding-agent harness with tools, sa
 
 - [Bun](https://bun.sh/) 1.x
 - A [DeepSeek API key](https://platform.deepseek.com/api_keys) with available balance
-- Node.js 20.18.1+ for `SANDBOX=just-bash` (the Bun command hands this mode off to Node)
+- Node.js 20.18.1+ for `--sandbox=just-bash` (the Bun command hands this mode off to Node)
 
 ## Setup
 
@@ -29,10 +29,11 @@ bun run start . "Read the package.json"
 To use the in-memory sandbox instead:
 
 ```bash
-SANDBOX=just-bash bun run index.ts . "Create a file called scratch.txt with the text 'hello'"
+bun run index.ts --sandbox=just-bash . "Create a file called scratch.txt with the text 'hello'"
 ```
 
 Writes in this mode stay in memory and do not change the real project files.
+The default model is `deepseek-flash`; use `--model=deepseek-v4-pro` to select another DeepSeek model.
 
 Check the TypeScript types:
 
